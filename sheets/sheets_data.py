@@ -11,37 +11,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import google.auth
 
-#google sheets api overview
-#https://developers.google.com/sheets/api/guides/concepts
-
-#os.chdir('C:/Users/jamie.dumayne/Documents/python/scripts/trafigura_checks/google_api/google_sheets/')
-
-
-def CONNECT_TO_SHEETS_API():
-    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-    creds = None
-    # The file token.json stores the user's access and refresh tokens, and is
-    # created automatically when the authorization flow completes for the first
-    # time.
-    if os.path.exists("token.json"):
-        creds = Credentials.from_authorized_user_file("token.json", scopes)
-        # If there are no (valid) credentials available, let the user log in.
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-            "credentials.json", scopes)
-            creds = flow.run_local_server(port=0)
-
-        # Save the credentials for the next run
-        with open("token.json", "w") as token:
-            token.write(creds.to_json())
-
-    service = build("sheets", "v4", credentials=creds)
-    
-
-def DOWNLOAD_DATA(spreadsheet_id, range_request, api_info):
+def download_values(spreadsheet_id, range_request, api_info):
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
 
     token_file_path = api_info["token_path"]
@@ -73,8 +43,6 @@ def DOWNLOAD_DATA(spreadsheet_id, range_request, api_info):
         print("------------------")
         print("Error: Can't download data from sheet")
         print("Check tab name is correct")
-        print("Check tab has been created")
-        print("------------------")
         sys.exit()
 
     if not values:
@@ -88,7 +56,47 @@ def DOWNLOAD_DATA(spreadsheet_id, range_request, api_info):
         return df
 
 
-def UPDATE_VALUES(spreadsheet_id, range_name, values, value_input_option, api_info):
+def download_formulas(sheet_info, tab_name):
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+
+    token_file_path = sheet_info["api_info"]["token"]
+    credentials_path = sheet_info["api_info"]["credentials_path"]
+
+    if os.path.exists(token_file_path):
+        creds = Credentials.from_authorized_user_file(token_file_path, scopes)
+
+    service = build("sheets", "v4", credentials=creds)
+    sheets = service.spreadsheets().values()
+    full_range = tab_name
+
+    params = {
+        "spreadsheetId": sheet_info["spreadsheet_id"],
+        "range": full_range,
+    }
+    params["valueRenderOption"] = "FORMULA"
+
+    try:
+        result = sheets.get(**params).execute()
+        data = result.get("values", [])
+
+        formula_df = pd.DataFrame(data)
+        formula_df.columns = formula_df.iloc[0]
+        formula_df = formula_df[1:]
+    except Exception as e:
+        print("---------------")
+        print("Error: can't download data from sheet")
+        print(e)
+        print("---------------")
+        sys.exit(1)
+
+    if not data:
+        print("No data found.")
+        return pd.DataFrame()
+
+    return formula_df
+
+
+def upload_values(spreadsheet_id, range_name, values, value_input_option, api_info):
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
     token_file_path = api_info["token_path"]
     credentials_path = api_info["credentials_path"]

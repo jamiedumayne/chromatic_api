@@ -1,6 +1,5 @@
 import os.path
 import os
-import pandas as pd
 import base64
 from email.message import EmailMessage
 import pathlib
@@ -10,24 +9,18 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-import smtplib,ssl
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email.mime.text import MIMEText
-from email.utils import formatdate
-from email import encoders
 
-from email.mime.multipart import MIMEMultipart
-from email.mime.application import MIMEApplication
-
-def SEND_EMAIL(reciepent_id, subject, message, gmail_path, sender_id="jamie.dumayne@ahkgroup.com"):
+def send_email(reciepent_id, subject, message, gmail_path, sender_id, api_info):
   os.chdir(gmail_path)
   
   SCOPES = ["https://www.googleapis.com/auth/gmail.readonly", 'https://www.googleapis.com/auth/gmail.compose']
+  token_file_path = api_info["token_path"]
+  credentials_path = api_info["credentials_path"]
+    
+  token_path = pathlib.Path(token_file_path)
 
-  token_path = pathlib.Path("token.json")
-  if os.path.exists("token.json"):
-    creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+  if os.path.exists(token_path):
+    creds = Credentials.from_authorized_user_file(token_path, SCOPES)
   if not creds or not creds.valid:
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
@@ -36,11 +29,9 @@ def SEND_EMAIL(reciepent_id, subject, message, gmail_path, sender_id="jamie.duma
         creds = flow.run_local_server(port=0)
 
     # Save the credentials for future use
-    with open("token.json", "w") as token:
+    with open(token_path, "w") as token:
         token.write(creds.to_json())
 
-
-  
   service = build('gmail', 'v1', credentials=creds)
   msg = str(message)
 
@@ -68,10 +59,8 @@ def SEND_EMAIL(reciepent_id, subject, message, gmail_path, sender_id="jamie.duma
     print("problem sending email")
     send_message = None
 
-  return send_message
 
-
-def SEND_EMAIL_ATTACHMENT(email_to, subject, message, attachement_name, attachment_path, gmail_path, api_info, sender_id):
+def send_email_with_attachment(email_to, subject, message, attachement_name, attachment_path, gmail_path, sender_id, api_info):
   os.chdir(gmail_path)
   
   scopes = ["https://www.googleapis.com/auth/gmail.readonly", 'https://www.googleapis.com/auth/gmail.compose']
@@ -116,4 +105,80 @@ def SEND_EMAIL_ATTACHMENT(email_to, subject, message, attachement_name, attachme
     print("problem sending email")
     send_message = None
 
-  return send_message
+
+def gmail_create_draft(reciepent_id, subject, body, sender, api_info):
+  scopes = ["https://www.googleapis.com/auth/gmail.readonly", 'https://www.googleapis.com/auth/gmail.compose']
+  token_file_path = api_info["token_path"]
+  credentials_path = api_info["credentials_path"]
+    
+  token_path = pathlib.Path(token_file_path)
+  creds = Credentials.from_authorized_user_file(token_path, scopes)
+
+  try:
+    # create gmail api client
+    service = build("gmail", "v1", credentials=creds)
+
+    msg = str(body)
+    message = EmailMessage()
+    message.set_content(msg)
+
+    message["To"] = reciepent_id
+    message["From"] = sender
+    message["Subject"] = subject
+
+    # encoded message
+    encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+
+    create_message = {"message": {"raw": encoded_message}}
+    # pylint: disable=E1101
+    draft = (
+        service.users()
+        .drafts()
+        .create(userId="me", body=create_message)
+        .execute()
+    )
+
+    print("Draft email created")
+
+  except HttpError as error:
+    print(f"An error occurred: {error}")
+    draft = None
+
+  return draft
+
+
+def download_last_email(api_info):
+  scopes = ["https://www.googleapis.com/auth/gmail.readonly", 'https://www.googleapis.com/auth/gmail.compose']
+  token_file_path = api_info["token_path"]
+  credentials_path = api_info["credentials_path"]
+    
+  token_path = pathlib.Path(token_file_path)
+  creds = Credentials.from_authorized_user_file(token_path, scopes)
+
+  try:
+    service = build("gmail", "v1", credentials=creds)
+    result = service.users().messages().list(maxResults=2, userId='me').execute() 
+  
+    # We can also pass maxResults to get any number of emails. Like this: 
+    # result = service.users().messages().list(maxResults=200, userId='me').execute() 
+    messages = result.get('messages')
+
+    for msg in messages:
+        txt = service.users().messages().get(userId='me', id=msg['id']).execute()
+        
+        #payload is the bulk of the message
+        payload = txt["payload"]
+
+        headers = payload["headers"]
+
+        for d in headers:
+            if d['name'] == 'Subject':
+                subject = d['value']
+                print("Subject: " + subject)
+            if d['name'] == 'From': 
+                sender = d['value']
+                print("From: " + sender)
+
+
+  except HttpError as err:
+    print(err)

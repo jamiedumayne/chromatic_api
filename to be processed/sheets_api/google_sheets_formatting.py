@@ -3,67 +3,6 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from openpyxl.utils.cell import get_column_letter
 
-def SET_FONT_COLOUR_BACKGROUND_SIZE(spreadsheet_id, tab_name, col_index, row_index, colours, api_info, bold=False, num_rows = 1):
-    creds = Credentials.from_authorized_user_file(api_info["token"], api_info["scopes"])
-    sheets_service = build('sheets', 'v4', credentials=creds)
-    end_col_index = col_index + 1
-    end_row_index = row_index + num_rows
-
-    #get sheet_id
-    sheet_metadata = sheets_service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
-
-    for sheet in sheet_metadata['sheets']:
-        if sheet['properties']['title'] == tab_name:
-            sheet_id = sheet['properties']['sheetId']
-            break
-    
-    if bold == True:
-        bold_value = True
-    else:
-        bold_value = False
-
-    body = {
-    "requests": [
-        {
-        "repeatCell": {
-            "range": {
-                "sheetId": sheet_id,
-                "startRowIndex": row_index,
-                "endRowIndex": end_row_index,
-                "startColumnIndex": col_index,
-                "endColumnIndex": end_col_index
-                },
-            "cell": {
-                        "userEnteredFormat": {
-                            "backgroundColor": {
-                                "red": colours["background_colour"]["red"],
-                                "green": colours["background_colour"]["green"],
-                                "blue": colours["background_colour"]["blue"]
-                            },
-                            "textFormat": {
-                                "foregroundColor": {
-                                    "red": colours["font_colour"]["red"],
-                                    "green": colours["font_colour"]["green"],
-                                    "blue": colours["font_colour"]["blue"]
-                                },
-                                "fontFamily": "Montserrat",
-                                "fontSize": colours["font_size"],
-                                "bold": bold_value
-                            },
-                            "wrapStrategy": "WRAP",
-                            "horizontalAlignment": "CENTER",
-                            "verticalAlignment": "MIDDLE"
-                        }
-                    },
-                    # only update formatting fields (no values)
-                    "fields": "userEnteredFormat(backgroundColor,textFormat.foregroundColor,textFormat.fontFamily,textFormat.fontSize,textFormat.bold,wrapStrategy,horizontalAlignment,verticalAlignment)"
-                }
-            }
-        ]
-    }
-
-    sheets_service.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body=body).execute()
-
 
 def SET_FONT_COLOUR_COLUMN(spreadsheet_id, tab_name, start_col_index, end_col_index, start_row_index, colours, api_info):
     creds = Credentials.from_authorized_user_file(api_info["token"], api_info["scopes"])
@@ -729,3 +668,88 @@ def MERGE_MULTIPLE_CELLS(spreadsheet_id, tab_name, start_col_index, end_col_inde
     }
 
     sheets_service.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body=body).execute()
+
+
+def REMOVE_BANDING_FROM_RANGE(spreadsheet_id, tab_name, api_info, start_row, end_row, start_col, end_col):
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    creds = Credentials.from_authorized_user_file(api_info["token"], scopes)
+    sheets_service = build('sheets', 'v4', credentials=creds)
+
+    # Get sheet_id
+    sheet_metadata = sheets_service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+    sheet_id = None
+    for sheet in sheet_metadata['sheets']:
+        if sheet['properties']['title'] == tab_name:
+            sheet_id = sheet['properties']['sheetId']
+            sheet_data = sheet  # Save it!
+            break
+
+    if sheet_id is None:
+        raise ValueError(f"Sheet '{tab_name}' not found.")
+
+    # Get all banded ranges in the sheet
+    banded_ranges = sheet_data.get('bandedRanges', [])
+
+    requests = []
+
+    for band in banded_ranges:
+        range_data = band['range']
+        band_id = band['bandedRangeId']
+
+        # Check for overlap with target range
+        if range_data.get('sheetId') != sheet_id:
+            continue
+
+        r1_start = range_data.get('startRowIndex', 0)
+        r1_end = range_data.get('endRowIndex', float('inf'))
+        c1_start = range_data.get('startColumnIndex', 0)
+        c1_end = range_data.get('endColumnIndex', float('inf'))
+
+        # If the ranges intersect
+        rows_overlap = not (r1_end <= start_row or r1_start >= end_row)
+        cols_overlap = not (c1_end <= start_col or c1_start >= end_col)
+
+        if rows_overlap and cols_overlap:
+            requests.append({
+                "deleteBanding": {
+                    "bandedRangeId": band_id
+                }
+            })
+
+    # Send batch request to remove the banding
+    if requests:
+        body = {"requests": requests}
+        sheets_service.spreadsheets().batchUpdate(
+            spreadsheetId=spreadsheet_id,
+            body=body
+        ).execute()
+    else:
+        print("No banded ranges overlapped with the specified range.")
+
+
+def CLEAR_TAB(sheet_info):
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+
+    token_file_path = sheet_info["api_info"]["token"]
+    credentials_path = sheet_info["api_info"]["credentials_path"]
+    token = pathlib.Path(token_file_path)
+
+    if os.path.exists(token_file_path):
+        creds = Credentials.from_authorized_user_file(token, scopes)
+
+    service = build("sheets", "v4", credentials=creds)
+    sheet = service.spreadsheets()
+
+    try:
+        response = sheet.values().clear(
+            spreadsheetId=sheet_info["spreadsheet_id"],
+            range=sheet_info["tab_name"]  # This clears the whole tab
+        ).execute()
+        return response
+    except Exception as e:
+        print("------------------")
+        print("Error: Can't clear data from sheet")
+        print("Check tab name is correct")
+        print(e)
+        print("------------------")
+        sys.exit()
