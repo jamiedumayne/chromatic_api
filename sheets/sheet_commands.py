@@ -113,6 +113,40 @@ def add_new_columns(spreadsheet_id, tab_name, modify_service, num_of_columns_to_
     modify_service.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body=body).execute()
 
 
+def delete_columns(spreadsheet_id, tab_name, first_column, last_column, api_info):
+    creds = Credentials.from_authorized_user_file(api_info["token"], api_info["scopes"])
+    service = build('sheets', 'v4', credentials=creds)
+
+    # Get sheet ID and total columns
+    sheet_metadata = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+
+    for sheet in sheet_metadata['sheets']:
+        if sheet['properties']['title'] == tab_name:
+            sheet_id = sheet['properties']['sheetId']
+            break
+
+    total_columns = last_column-first_column
+
+    # Only delete if there are columns to remove
+    if last_column + 1 < total_columns:
+        request = {
+            "deleteDimension": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "dimension": "COLUMNS",
+                    "startIndex": first_column,
+                    "endIndex": total_columns
+                }
+            }
+        }
+
+        service.spreadsheets().batchUpdate(
+            spreadsheetId=spreadsheet_id,
+            body={"requests": [request]}
+        ).execute()
+
+
+
 def delete_tab(spreadsheet_id, tab_name, api_info):
     creds = Credentials.from_authorized_user_file(api_info["token"], api_info["scopes"])
     sheets_service = build('sheets', 'v4', credentials=creds)

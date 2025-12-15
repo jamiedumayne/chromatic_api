@@ -122,3 +122,31 @@ def upload_values(spreadsheet_id, range_name, values, value_input_option, api_in
     except HttpError as error:
         print(f"An error occurred: {error}")
         return error
+
+
+def clear_tab(spreadsheet_id, tab_name, api_info):
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+
+    token_file_path = api_info["token"]
+    credentials_path = api_info["credentials_path"]
+    token = pathlib.Path(token_file_path)
+
+    if os.path.exists(token_file_path):
+        creds = Credentials.from_authorized_user_file(token, scopes)
+
+    service = build("sheets", "v4", credentials=creds)
+    sheet = service.spreadsheets()
+
+    try:
+        response = sheet.values().clear(
+            spreadsheetId=spreadsheet_id,
+            range=tab_name  # This clears the whole tab
+        ).execute()
+        return response
+    except Exception as e:
+        print("------------------")
+        print("Error: Can't clear data from sheet")
+        print("Check tab name is correct")
+        print(e)
+        print("------------------")
+        sys.exit()
